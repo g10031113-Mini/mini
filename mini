@@ -1,0 +1,594 @@
+import React, { useState, useMemo } from 'react';
+import { Users, UserMinus, UserPlus, Activity, Search, Info, PieChart, LayoutTemplate, MessageSquare } from 'lucide-react';
+
+// --- Mock Data (模擬資料) ---
+const INITIAL_STUDENTS = [
+  { id: 's1', name: '小明', gender: 'M', avatar: '👦' },
+  { id: 's2', name: '小美', gender: 'F', avatar: '👧' },
+  { id: 's3', name: '阿強', gender: 'M', avatar: '👦🏽' },
+  { id: 's4', name: '小華', gender: 'M', avatar: '👦🏻' },
+  { id: 's5', name: '安安', gender: 'F', avatar: '👧🏻' },
+  { id: 's6', name: '大雄', gender: 'M', avatar: '👦🏼' },
+  { id: 's7', name: '靜香', gender: 'F', avatar: '👧🏼' },
+  { id: 's8', name: '胖虎', gender: 'M', avatar: '👦🏾' },
+  { id: 's9', name: '小夫', gender: 'M', avatar: '👦' },
+  { id: 's10', name: '小草', gender: 'F', avatar: '👧🏽' }, // 邊緣人設定
+];
+
+// 關係類型：friend (好朋友), enemy (敵意), none (沒往來 - 系統中若無friend/enemy即視為none)
+const INITIAL_RELATIONSHIPS = [
+  // 小明 (人氣王)
+  { source: 's2', target: 's1', type: 'friend' },
+  { source: 's4', target: 's1', type: 'friend' },
+  { source: 's5', target: 's1', type: 'friend' },
+  { source: 's6', target: 's1', type: 'friend' },
+  { source: 's7', target: 's1', type: 'friend' },
+  { source: 's1', target: 's6', type: 'friend' },
+  { source: 's1', target: 's7', type: 'friend' },
+  // 胖虎 (爭議/霸凌者)
+  { source: 's8', target: 's6', type: 'enemy' },
+  { source: 's8', target: 's9', type: 'friend' },
+  { source: 's9', target: 's8', type: 'friend' },
+  { source: 's3', target: 's8', type: 'enemy' },
+  { source: 's6', target: 's8', type: 'enemy' },
+  { source: 's4', target: 's8', type: 'enemy' },
+  // 阿強 (互相敵意)
+  { source: 's3', target: 's4', type: 'enemy' },
+  { source: 's4', target: 's3', type: 'enemy' },
+  // 小美與靜香 (好閨蜜)
+  { source: 's2', target: 's7', type: 'friend' },
+  { source: 's7', target: 's2', type: 'friend' },
+  // 其他
+  { source: 's5', target: 's2', type: 'friend' },
+  { source: 's9', target: 's1', type: 'enemy' },
+  // 小草 (s10) 沒有任何連出或連入，代表邊緣人
+];
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('network'); // network, dashboard, survey
+  const [selectedStudentId, setSelectedStudentId] = useState(null);
+  const [filterType, setFilterType] = useState('all'); // all, friend, enemy
+
+  // 計算每個學生的社交數據
+  const studentStats = useMemo(() => {
+    const stats = {};
+    INITIAL_STUDENTS.forEach(s => {
+      stats[s.id] = {
+        ...s,
+        incomingFriends: 0,
+        incomingEnemies: 0,
+        outgoingFriends: 0,
+        outgoingEnemies: 0,
+        friendsList: [],
+        enemiesList: [],
+        noContactList: []
+      };
+    });
+
+    INITIAL_RELATIONSHIPS.forEach(r => {
+      if (stats[r.target] && stats[r.source]) {
+        if (r.type === 'friend') {
+          stats[r.target].incomingFriends++;
+          stats[r.source].outgoingFriends++;
+          stats[r.target].friendsList.push(r.source);
+        } else if (r.type === 'enemy') {
+          stats[r.target].incomingEnemies++;
+          stats[r.source].outgoingEnemies++;
+          stats[r.target].enemiesList.push(r.source);
+        }
+      }
+    });
+
+    // 計算社交指數與角色判定
+    Object.values(stats).forEach(s => {
+      // 社交指數 = (獲得的好感 - 獲得的敵意)
+      s.socialIndex = s.incomingFriends - s.incomingEnemies;
+      
+      // 計算沒往來的名單 (班級總人數減去自己，再減去有任何互動的人)
+      const interactedIds = new Set([...s.friendsList, ...s.enemiesList, 
+        ...INITIAL_RELATIONSHIPS.filter(r => r.source === s.id).map(r => r.target)]);
+      s.noContactList = INITIAL_STUDENTS.filter(st => st.id !== s.id && !interactedIds.has(st.id)).map(st => st.id);
+
+      // 角色判定邏輯 (簡化版)
+      if (s.incomingFriends >= 4 && s.incomingEnemies <= 1) s.role = '人氣王';
+      else if (s.incomingEnemies >= 3) s.role = '被排斥';
+      else if (s.incomingFriends === 0 && s.incomingEnemies === 0) s.role = '邊緣人';
+      else if (s.incomingFriends >= 2 && s.incomingEnemies >= 2) s.role = '爭議人物';
+      else s.role = '一般學生';
+    });
+
+    return stats;
+  }, []);
+
+  const studentsArray = Object.values(studentStats).sort((a, b) => b.socialIndex - a.socialIndex);
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      {/* 頂部導航列 */}
+      <header className="bg-indigo-600 text-white shadow-md z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center space-x-3">
+              <Activity className="h-8 w-8 text-indigo-200" />
+              <h1 className="text-xl font-bold tracking-wider">班級社交測量系統 (Sociometry)</h1>
+            </div>
+            <nav className="flex space-x-4">
+              <button 
+                onClick={() => setActiveTab('network')}
+                className={`flex items-center space-x-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'network' ? 'bg-indigo-700 text-white' : 'text-indigo-100 hover:bg-indigo-500'}`}
+              >
+                <PieChart className="h-4 w-4" />
+                <span>關係網絡圖</span>
+              </button>
+              <button 
+                onClick={() => setActiveTab('dashboard')}
+                className={`flex items-center space-x-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-indigo-700 text-white' : 'text-indigo-100 hover:bg-indigo-500'}`}
+              >
+                <LayoutTemplate className="h-4 w-4" />
+                <span>數據總覽</span>
+              </button>
+              <button 
+                onClick={() => setActiveTab('survey')}
+                className={`flex items-center space-x-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'survey' ? 'bg-indigo-700 text-white' : 'text-indigo-100 hover:bg-indigo-500'}`}
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span>學生問卷端</span>
+              </button>
+            </nav>
+          </div>
+        </div>
+      </header>
+
+      {/* 主要內容區 */}
+      <main className="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex gap-6">
+        
+        {/* 左側/主要內容 */}
+        <div className={`flex-grow transition-all duration-300 ${selectedStudentId ? 'w-2/3' : 'w-full'}`}>
+          {activeTab === 'network' && (
+            <NetworkGraph 
+              students={INITIAL_STUDENTS} 
+              relationships={INITIAL_RELATIONSHIPS} 
+              stats={studentStats}
+              filterType={filterType}
+              setFilterType={setFilterType}
+              selectedId={selectedStudentId}
+              onSelectStudent={setSelectedStudentId}
+            />
+          )}
+          {activeTab === 'dashboard' && (
+            <Dashboard students={studentsArray} onSelectStudent={setSelectedStudentId} />
+          )}
+          {activeTab === 'survey' && (
+            <SurveySimulator students={INITIAL_STUDENTS} />
+          )}
+        </div>
+
+        {/* 右側：個人詳細資料面板 (僅在選中學生時顯示) */}
+        {selectedStudentId && (
+          <div className="w-1/3 min-w-[320px] bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden flex flex-col h-[calc(100vh-8rem)] sticky top-24">
+            <StudentDetail 
+              student={studentStats[selectedStudentId]} 
+              allStats={studentStats}
+              onClose={() => setSelectedStudentId(null)}
+              onSelectStudent={setSelectedStudentId}
+            />
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+// --- Component: 關係網絡圖 (SVG Network Graph) ---
+function NetworkGraph({ students, relationships, stats, filterType, setFilterType, selectedId, onSelectStudent }) {
+  // 簡易圖表佈局計算 (將節點排列成圓形)
+  const width = 800;
+  const height = 600;
+  const radius = 220;
+  const centerX = width / 2;
+  const centerY = height / 2 + 20;
+
+  const nodes = students.map((student, index) => {
+    const angle = (index / students.length) * 2 * Math.PI - Math.PI / 2;
+    return {
+      ...student,
+      x: centerX + radius * Math.cos(angle),
+      y: centerY + radius * Math.sin(angle),
+    };
+  });
+
+  const getFilteredRelationships = () => {
+    let rels = relationships;
+    if (filterType !== 'all') {
+      rels = rels.filter(r => r.type === filterType);
+    }
+    // 如果有選中特定學生，只顯示與他相關的連線
+    if (selectedId) {
+      rels = rels.filter(r => r.source === selectedId || r.target === selectedId);
+    }
+    return rels;
+  };
+
+  const edges = getFilteredRelationships().map(rel => {
+    const sourceNode = nodes.find(n => n.id === rel.source);
+    const targetNode = nodes.find(n => n.id === rel.target);
+    return { ...rel, sourceNode, targetNode };
+  }).filter(e => e.sourceNode && e.targetNode);
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 h-full flex flex-col">
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">班級社交網絡圖</h2>
+          <p className="text-sm text-slate-500 mt-1">圓圈大小代表總被提名次數，線條代表關係指向。</p>
+        </div>
+        <div className="flex space-x-2 bg-slate-100 p-1 rounded-lg">
+          <button onClick={() => setFilterType('all')} className={`px-4 py-1.5 text-sm rounded-md transition ${filterType === 'all' ? 'bg-white shadow-sm font-semibold text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>全部</button>
+          <button onClick={() => setFilterType('friend')} className={`px-4 py-1.5 text-sm rounded-md transition ${filterType === 'friend' ? 'bg-green-100 shadow-sm font-semibold text-green-700' : 'text-slate-500 hover:text-slate-700'}`}>好朋友</button>
+          <button onClick={() => setFilterType('enemy')} className={`px-4 py-1.5 text-sm rounded-md transition ${filterType === 'enemy' ? 'bg-red-100 shadow-sm font-semibold text-red-700' : 'text-slate-500 hover:text-slate-700'}`}>敵意</button>
+        </div>
+      </div>
+
+      <div className="flex-grow bg-slate-50 rounded-lg overflow-hidden relative border border-slate-100 flex items-center justify-center">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full max-h-[600px] drop-shadow-sm">
+          <defs>
+            {/* 箭頭標記：好朋友 */}
+            <marker id="arrow-friend" viewBox="0 -5 10 10" refX="28" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0,-5L10,0L0,5" fill="#22c55e" opacity="0.8" />
+            </marker>
+            {/* 箭頭標記：敵意 */}
+            <marker id="arrow-enemy" viewBox="0 -5 10 10" refX="28" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0,-5L10,0L0,5" fill="#ef4444" opacity="0.8" />
+            </marker>
+          </defs>
+
+          {/* 繪製連線 (Edges) */}
+          {edges.map((edge, i) => {
+            const isFriend = edge.type === 'friend';
+            const isHighlighted = selectedId === edge.source || selectedId === edge.target;
+            const opacity = selectedId ? (isHighlighted ? 1 : 0.1) : 0.6;
+            
+            // 計算二次貝茲曲線，讓互相指向的線條彎曲不重疊
+            const dx = edge.targetNode.x - edge.sourceNode.x;
+            const dy = edge.targetNode.y - edge.sourceNode.y;
+            const dr = Math.sqrt(dx * dx + dy * dy) * 1.5; 
+            
+            // 檢查是否為雙向關係以決定是否彎曲
+            const isBidirectional = relationships.some(r => r.source === edge.target && r.target === edge.source && r.type === edge.type);
+            const pathData = isBidirectional 
+              ? `M${edge.sourceNode.x},${edge.sourceNode.y} A${dr},${dr} 0 0,1 ${edge.targetNode.x},${edge.targetNode.y}`
+              : `M${edge.sourceNode.x},${edge.sourceNode.y} L${edge.targetNode.x},${edge.targetNode.y}`;
+
+            return (
+              <path
+                key={i}
+                d={pathData}
+                fill="none"
+                stroke={isFriend ? '#22c55e' : '#ef4444'}
+                strokeWidth={isHighlighted ? 3 : 2}
+                strokeDasharray={isFriend ? 'none' : '5,5'}
+                opacity={opacity}
+                markerEnd={`url(#arrow-${edge.type})`}
+                className="transition-all duration-300"
+              />
+            );
+          })}
+
+          {/* 繪製節點 (Nodes) */}
+          {nodes.map((node) => {
+            const isSelected = selectedId === node.id;
+            const isDimmed = selectedId && !isSelected && 
+                            !edges.some(e => (e.source === selectedId && e.target === node.id) || (e.target === selectedId && e.source === node.id));
+            
+            // 根據被提及次數決定節點大小
+            const mentions = stats[node.id].incomingFriends + stats[node.id].incomingEnemies;
+            const nodeRadius = 20 + Math.min(mentions * 2, 15);
+
+            return (
+              <g 
+                key={node.id} 
+                transform={`translate(${node.x}, ${node.y})`}
+                onClick={() => onSelectStudent(isSelected ? null : node.id)}
+                className={`cursor-pointer transition-all duration-300 ${isDimmed ? 'opacity-30' : 'opacity-100 hover:scale-110'}`}
+              >
+                <circle 
+                  r={nodeRadius} 
+                  fill="white" 
+                  stroke={isSelected ? '#4f46e5' : '#cbd5e1'} 
+                  strokeWidth={isSelected ? 4 : 2}
+                  className="shadow-lg"
+                />
+                <text textAnchor="middle" dy=".3em" fontSize="24">{node.avatar}</text>
+                <text 
+                  textAnchor="middle" 
+                  dy={nodeRadius + 15} 
+                  fontSize="12" 
+                  fontWeight="bold" 
+                  fill="#475569"
+                  className={isSelected ? 'fill-indigo-700' : ''}
+                >
+                  {node.name}
+                </text>
+                
+                {/* 顯示指數小標籤 */}
+                <rect x={nodeRadius - 10} y={-nodeRadius - 10} width="20" height="20" rx="10" fill={stats[node.id].socialIndex >= 0 ? '#10b981' : '#f43f5e'} />
+                <text x={nodeRadius} y={-nodeRadius + 4} textAnchor="middle" fontSize="10" fill="white" fontWeight="bold">
+                  {stats[node.id].socialIndex > 0 ? '+' : ''}{stats[node.id].socialIndex}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+
+        {/* 圖例 */}
+        <div className="absolute bottom-4 left-4 bg-white/90 p-3 rounded-lg border border-slate-200 shadow-sm text-xs space-y-2 backdrop-blur-sm">
+          <div className="flex items-center space-x-2">
+            <div className="w-6 h-0.5 bg-green-500"></div>
+            <span className="text-slate-600">好朋友 (單向/雙向)</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-6 h-0.5 bg-red-500 border-t-2 border-dashed border-red-500"></div>
+            <span className="text-slate-600">敵意 / 不喜歡</span>
+          </div>
+          <div className="flex items-center space-x-2 mt-2 pt-2 border-t border-slate-200">
+            <div className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center text-[8px] text-white">+</div>
+            <span className="text-slate-600">正向社交指數</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Component: 數據總覽列表 (Dashboard/List View) ---
+function Dashboard({ students, onSelectStudent }) {
+  const getRoleColor = (role) => {
+    switch (role) {
+      case '人氣王': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case '被排斥': return 'bg-red-100 text-red-800 border-red-200';
+      case '邊緣人': return 'bg-slate-100 text-slate-600 border-slate-200';
+      case '爭議人物': return 'bg-orange-100 text-orange-800 border-orange-200';
+      default: return 'bg-blue-50 text-blue-700 border-blue-200';
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-full flex flex-col">
+      <div className="p-6 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">班級社交數據總覽</h2>
+          <p className="text-sm text-slate-500 mt-1">依據測量結果計算的個人社交指數與角色判定。</p>
+        </div>
+      </div>
+      
+      <div className="overflow-x-auto flex-grow">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-slate-50 text-slate-600 text-sm border-b border-slate-200">
+              <th className="p-4 font-semibold">學生</th>
+              <th className="p-4 font-semibold text-center">社交指數</th>
+              <th className="p-4 font-semibold text-center text-green-600">獲得好友票</th>
+              <th className="p-4 font-semibold text-center text-red-600">獲得敵意票</th>
+              <th className="p-4 font-semibold">社交角色判定</th>
+              <th className="p-4 font-semibold text-center">操作</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {students.map((student) => (
+              <tr key={student.id} className="hover:bg-slate-50 transition-colors">
+                <td className="p-4 flex items-center space-x-3">
+                  <span className="text-2xl">{student.avatar}</span>
+                  <span className="font-medium text-slate-800">{student.name}</span>
+                </td>
+                <td className="p-4 text-center">
+                  <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-sm ${student.socialIndex > 0 ? 'bg-green-100 text-green-700' : student.socialIndex < 0 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'}`}>
+                    {student.socialIndex > 0 ? '+' : ''}{student.socialIndex}
+                  </span>
+                </td>
+                <td className="p-4 text-center font-medium text-green-600">{student.incomingFriends}</td>
+                <td className="p-4 text-center font-medium text-red-600">{student.incomingEnemies}</td>
+                <td className="p-4">
+                  <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${getRoleColor(student.role)}`}>
+                    {student.role}
+                  </span>
+                </td>
+                <td className="p-4 text-center">
+                  <button 
+                    onClick={() => onSelectStudent(student.id)}
+                    className="text-indigo-600 hover:text-indigo-800 text-sm font-medium hover:underline"
+                  >
+                    查看詳情
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// --- Component: 學生詳細資料面板 (Right Sidebar) ---
+function StudentDetail({ student, allStats, onClose, onSelectStudent }) {
+  if (!student) return null;
+
+  const renderStudentList = (ids, emptyMsg, typeClass) => {
+    if (ids.length === 0) return <p className="text-sm text-slate-400 italic py-2">{emptyMsg}</p>;
+    
+    return (
+      <div className="flex flex-wrap gap-2 mt-2">
+        {ids.map(id => (
+          <button 
+            key={id} 
+            onClick={() => onSelectStudent(id)}
+            className={`flex items-center space-x-1 px-2 py-1 rounded-md text-sm transition-transform hover:scale-105 ${typeClass}`}
+          >
+            <span>{allStats[id].avatar}</span>
+            <span>{allStats[id].name}</span>
+          </button>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      {/* Header */}
+      <div className="bg-indigo-600 p-6 text-white relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-indigo-200 hover:text-white">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+        <div className="flex flex-col items-center">
+          <div className="text-6xl mb-2 bg-white/20 w-24 h-24 flex items-center justify-center rounded-full border-4 border-white/30 shadow-inner">
+            {student.avatar}
+          </div>
+          <h2 className="text-2xl font-bold">{student.name}</h2>
+          <div className="mt-2 bg-indigo-800/50 px-3 py-1 rounded-full text-sm font-medium border border-indigo-400/30">
+            社交角色：{student.role}
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-grow overflow-y-auto p-6 space-y-6 bg-slate-50">
+        
+        {/* 指數卡片 */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-white p-3 rounded-lg border border-slate-200 text-center shadow-sm">
+            <div className="text-xs text-slate-500 mb-1">社交指數</div>
+            <div className={`text-xl font-bold ${student.socialIndex >= 0 ? 'text-indigo-600' : 'text-red-600'}`}>
+              {student.socialIndex > 0 ? '+' : ''}{student.socialIndex}
+            </div>
+          </div>
+          <div className="bg-white p-3 rounded-lg border border-green-100 text-center shadow-sm">
+            <div className="text-xs text-slate-500 mb-1">獲得好友</div>
+            <div className="text-xl font-bold text-green-600">{student.incomingFriends}</div>
+          </div>
+          <div className="bg-white p-3 rounded-lg border border-red-100 text-center shadow-sm">
+            <div className="text-xs text-slate-500 mb-1">獲得敵意</div>
+            <div className="text-xl font-bold text-red-600">{student.incomingEnemies}</div>
+          </div>
+        </div>
+
+        {/* 關係詳情區塊 */}
+        <div className="space-y-4">
+          
+          {/* 喜歡他的人 (好朋友) */}
+          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+            <h3 className="flex items-center text-sm font-bold text-slate-700 border-b pb-2 mb-2">
+              <UserPlus className="w-4 h-4 mr-2 text-green-500" />
+              誰當 {student.name} 是好朋友？ ({student.friendsList.length})
+            </h3>
+            {renderStudentList(student.friendsList, "目前沒有人將他填為好朋友", "bg-green-50 text-green-700 border border-green-200 hover:bg-green-100")}
+          </div>
+
+          {/* 討厭他的人 (敵意) */}
+          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+            <h3 className="flex items-center text-sm font-bold text-slate-700 border-b pb-2 mb-2">
+              <UserMinus className="w-4 h-4 mr-2 text-red-500" />
+              誰對 {student.name} 有敵意？ ({student.enemiesList.length})
+            </h3>
+            {renderStudentList(student.enemiesList, "目前沒有人對他表示敵意", "bg-red-50 text-red-700 border border-red-200 hover:bg-red-100")}
+          </div>
+
+          {/* 沒往來的人 */}
+          <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+            <h3 className="flex items-center text-sm font-bold text-slate-700 border-b pb-2 mb-2">
+              <Users className="w-4 h-4 mr-2 text-slate-400" />
+              與 {student.name} 完全沒往來的同學 ({student.noContactList.length})
+            </h3>
+            <p className="text-xs text-slate-500 mb-2">雙方都沒有在問卷中提及彼此</p>
+            {renderStudentList(student.noContactList, "他與班上每個人都有互動", "bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200")}
+          </div>
+
+        </div>
+      </div>
+    </>
+  );
+}
+
+// --- Component: 學生問卷模擬端 (Survey Simulator) ---
+function SurveySimulator({ students }) {
+  const [actingAs, setActingAs] = useState(students[0].id);
+
+  const currentUser = students.find(s => s.id === actingAs);
+  const otherStudents = students.filter(s => s.id !== actingAs);
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 h-full max-w-3xl mx-auto">
+      <div className="text-center mb-8">
+        <h2 className="text-2xl font-bold text-slate-800">班級人際關係小問卷</h2>
+        <p className="text-slate-500 mt-2">這是一個模擬學生填寫問卷的介面。老師可透過此問卷收集系統數據。</p>
+      </div>
+
+      <div className="mb-8 p-4 bg-indigo-50 border border-indigo-100 rounded-lg flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <span className="text-slate-600 font-medium">目前模擬填寫身分：</span>
+          <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-md border border-indigo-200 shadow-sm">
+            <span className="text-xl">{currentUser.avatar}</span>
+            <span className="font-bold text-indigo-700">{currentUser.name}</span>
+          </div>
+        </div>
+        <select 
+          className="border-slate-300 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500 shadow-sm p-2"
+          value={actingAs}
+          onChange={(e) => setActingAs(e.target.value)}
+        >
+          {students.map(s => (
+            <option key={s.id} value={s.id}>切換為 {s.name} 填寫</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="space-y-8">
+        {/* Question 1 */}
+        <div className="bg-slate-50 p-6 rounded-xl border border-slate-200">
+          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+            <span className="bg-green-100 text-green-700 w-8 h-8 rounded-full flex items-center justify-center mr-3">1</span>
+            如果今天要去校外教學，你可以選3個人跟你同一組，你會選哪三位同學呢？
+          </h3>
+          <p className="text-sm text-slate-500 mb-4 ml-11">可以複選，選出平時最常一起玩、最信任的同學。</p>
+          <div className="ml-11 grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {otherStudents.map(s => (
+              <label key={`q1-${s.id}`} className="flex items-center space-x-3 p-3 bg-white border border-slate-200 rounded-lg cursor-pointer hover:bg-green-50 hover:border-green-200 transition-colors">
+                <input type="checkbox" className="form-checkbox h-5 w-5 text-green-500 rounded border-slate-300 focus:ring-green-500" />
+                <span className="flex items-center space-x-2">
+                  <span>{s.avatar}</span>
+                  <span className="font-medium text-slate-700">{s.name}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Question 2 */}
+        <div className="bg-slate-50 p-6 rounded-xl border border-slate-200">
+          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center">
+            <span className="bg-red-100 text-red-700 w-8 h-8 rounded-full flex items-center justify-center mr-3">2</span>
+            如果今天要去校外教學，你不希望哪3個人跟你同一組?
+          </h3>
+          <p className="text-sm text-slate-500 mb-4 ml-11">可以複選，這個資料只有老師看得到，請放心作答。</p>
+          <div className="ml-11 grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {otherStudents.map(s => (
+              <label key={`q2-${s.id}`} className="flex items-center space-x-3 p-3 bg-white border border-slate-200 rounded-lg cursor-pointer hover:bg-red-50 hover:border-red-200 transition-colors">
+                <input type="checkbox" className="form-checkbox h-5 w-5 text-red-500 rounded border-slate-300 focus:ring-red-500" />
+                <span className="flex items-center space-x-2">
+                  <span>{s.avatar}</span>
+                  <span className="font-medium text-slate-700">{s.name}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end pt-4">
+          <button className="bg-indigo-600 text-white px-8 py-3 rounded-lg font-bold shadow-md hover:bg-indigo-700 transition-colors flex items-center">
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            送出問卷 (展示用)
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
